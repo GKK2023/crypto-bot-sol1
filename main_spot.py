@@ -137,6 +137,7 @@ class SimpleBot:
         print(f"[DEBUG] Solde: USDT={self.balance.get('USDT', 0):.2f}, SOL={self.balance.get('SOL', 0):.6f}")
         self.position = None
         self.cooldown_remaining = 0          # Compteur de cooldown
+        self.prev_macd = None               # Pour détecter l'amélioration du MACD
         self.last_sell_profit_pct = 0.0      # Dernier profit réalisé
         self.peak_price_since_buy = 0.0     # Pour trailing stop
         self._detect_existing_position()
@@ -308,8 +309,22 @@ class SimpleBot:
         """Retourne tous les indicateurs d'un coup"""
         rsi = self.calculate_rsi(data)
         macd, signal = self.calculate_macd(data)
-        macd_cross_up = macd > signal and macd > 0
-        return rsi, macd, signal, macd_cross_up
+
+        # MACD histogram = MACD - Signal (distance entre les deux lignes)
+        histogram = macd - signal
+
+        # MACD en amélioration = histogram croissant OU histogram déjà positif
+        # On compare à la valeur précédente pour voir si ça s'améliore
+        if self.prev_macd is not None:
+            prev_histogram = self.prev_macd - (self.prev_signal or 0)
+            macd_improving = histogram > prev_histogram  # l'histogramme monte
+        else:
+            macd_improving = True  # premier cycle = on fait confiance
+
+        self.prev_macd = macd
+        self.prev_signal = signal
+
+        return rsi, macd, signal, histogram, macd_improving
 
 
     def calculate_profitability(self, current_price):
@@ -353,14 +368,14 @@ class SimpleBot:
 
 
     def should_buy(self, data):
-        """ACHAT: RSI < seuil ET (optionnel) MACD croisement haussier"""
-        rsi, macd, signal, macd_cross_up = self.get_indicators(data)
+        """ACHAT: RSI < seuil ET MACD en amélioration (histogramme qui monte)"""
+        rsi, macd, signal, histogram, macd_improving = self.get_indicators(data)
 
         if rsi >= RSI_BUY_THRESHOLD:
             return False
 
-        if MACD_CONFIRM and not macd_cross_up:
-            print(f"  -> RSI OK ({rsi:.1f} < {RSI_BUY_THRESHOLD}) mais MACD pas confirmé (MACD={macd:.2f}, Signal={signal:.2f})")
+        if MACD_CONFIRM and not macd_improving:
+            print(f"  -> RSI OK ({rsi:.1f} < {RSI_BUY_THRESHOLD}) mais MACD se dégrade encore (histogramme: {histogram:.3f}, en baisse)")
             return False
 
         return True
