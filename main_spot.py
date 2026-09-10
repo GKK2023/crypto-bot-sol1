@@ -10,8 +10,9 @@ API_KEY = os.getenv('GATEIO_API_KEY', '')
 API_SECRET = os.getenv('GATEIO_API_SECRET', '')
 TRADING_FEE = 0.001
 TOTAL_FEES = 0.002
-MIN_USDT_RESERVE = 5
+MIN_USDT_RESERVE = 1          # Réserve minimum (baissé de 5$)
 MAX_USDT_PERCENT = 20
+MIN_TRADE_USDT = 2            # Trade minimum en USDT (baissé de 7$)
 MIN_PROFIT_THRESHOLD = 0.5
 TAKE_PROFIT_THRESHOLD = 0.5
 TRAILING_STOP_PCT = 0.3
@@ -202,9 +203,15 @@ class SimpleBot:
             if price is None: return
             total_usdt = float(self.balance.get('USDT', 0))
             usdt_to_use = (total_usdt - MIN_USDT_RESERVE) * (MAX_USDT_PERCENT / 100)
-            if usdt_to_use <= 5: print(f"  -> Solde insuffisant"); return
+            if usdt_to_use <= MIN_TRADE_USDT:
+                # Tentative avec le solde disponible (sans réserve)
+                if total_usdt >= MIN_TRADE_USDT:
+                    usdt_to_use = total_usdt * (MAX_USDT_PERCENT / 100)
+                    print(f"  -> ⚠️ Solde faible, utilisation de {usdt_to_use:.2f}$ (réserve désactivée)")
+                else:
+                    print(f"  -> Solde insuffisant ({total_usdt:.2f}$ < {MIN_TRADE_USDT}$)"); return
             amount_after_fee = (usdt_to_use / price) * (1 - TRADING_FEE)
-            if amount_after_fee * price < 7: print(f"  -> Montant trop petit"); return
+            if amount_after_fee * price < MIN_TRADE_USDT: print(f"  -> Montant trop petit ({amount_after_fee * price:.2f}$ < {MIN_TRADE_USDT}$)"); return
             amount = round(amount_after_fee, 4)
             if PAPER_MODE:
                 self.balance['USDT'] -= usdt_to_use; self.balance['SOL'] += amount
@@ -228,7 +235,7 @@ class SimpleBot:
             is_profitable, profit_pct, details = self.calculate_profitability(price)
             if not is_profitable: print(f"  -> Vente ANNULÉE"); return
             amount = sol_balance
-            if amount * price < 7: print(f"  -> Montant trop petit"); return
+            if amount * price < MIN_TRADE_USDT: print(f"  -> Montant trop petit"); return
             if PAPER_MODE:
                 self.balance['SOL'] = 0; self.balance['USDT'] += amount * price * (1 - TRADING_FEE)
                 self.position = None; self.balance = self.get_real_balance()
@@ -244,6 +251,7 @@ class SimpleBot:
         print(f"\n===== BOT SOL/USDT v2 =====")
         print(f"RSI achat: < {RSI_BUY_THRESHOLD} | TP: {MIN_PROFIT_THRESHOLD}% | Trailing: {TRAILING_STOP_PCT}%")
         print(f"MACD: {MACD_CONFIRM} | Cooldown: {COOLDOWN_CYCLES * 3} min | Alloc: {MAX_USDT_PERCENT}%")
+        print(f"Min trade: {MIN_TRADE_USDT}$ | Réserve: {MIN_USDT_RESERVE}$")
         print(f"============================\n")
         cycle = 0
         while True:
